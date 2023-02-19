@@ -1,0 +1,6 @@
+opendatasets
+matplotlib
+pytorch-lightning
+
+# dev requirements
+black
