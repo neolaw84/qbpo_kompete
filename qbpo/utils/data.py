@@ -145,7 +145,10 @@ def add_ts_column(
 
 
 def fill_ts(
-    df: pd.DataFrame, id_columns: Union[str, List[str]]=None, ts_column: str = "", delta="MS"
+    df: pd.DataFrame,
+    id_columns: Union[str, List[str]] = None,
+    ts_column: str = "",
+    delta="MS",
 ):
     """_ensure dataframe includes all timestamps_
 
