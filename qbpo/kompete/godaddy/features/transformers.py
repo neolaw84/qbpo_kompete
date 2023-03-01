@@ -294,6 +294,7 @@ class PassThroughFeatures(
 
     def transform(self, X):
         df = X.copy() if self.copy else X
+        df = df[self.columns] if self.columns else df
         if self.index is not None:
             self.sort_by_index(df, inplace=True)
         return df
@@ -322,8 +323,8 @@ class RunningTsFeature(sk_base.TransformerMixin, SortByIndexMixin):
         self,
         index: pd.Index = None,
         tqdm_disable:bool = False,
-        out_column_name:str = "running_ts",
-        ent_column_name:str = "cfips",
+        out_column_name:str = COL_TS,
+        ent_column_name:str = COL_EN,
         include_entity:bool = False
     ):
         self.index = index
