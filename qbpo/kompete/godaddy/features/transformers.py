@@ -1,3 +1,4 @@
+from datetime import datetime as dt, timedelta as td
 from warnings import warn
 from typing import Union, List
 
@@ -10,7 +11,7 @@ from sklearn import base as sk_base
 from sklearn import pipeline as sk_pipe
 
 from qbpo.utils import feature as feat_utils
-import qbpo.config
+import qbpo
 
 
 COL_ROW_ID = "row_id"
@@ -98,6 +99,7 @@ class ShiftFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexM
         columns: Union[str, List[str]] = None,
         id_columns: Union[str, List[str]] = None,
         index: pd.Index = None,
+        tqdm_disable:bool = False
     ):
         self.period_from = period_from
         self.period_to = period_to
@@ -105,6 +107,7 @@ class ShiftFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexM
         self.id_columns = id_columns
         self.index = index
         self.out_columns_args = [["shift", p] for p in range(period_from, period_to)]
+        self.tqdm_disable = tqdm_disable
 
     def fit_transform(self, X: pd.DataFrame, y=None, **fit_params):
         return super().fit_transform(X, y, **fit_params)
@@ -130,18 +133,16 @@ class ShiftFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexM
         id_columns = _set_default(self.id_columns, [COL_EN])
 
         output_columns = self.get_feature_names_out()
-
+        
         df = pd.DataFrame(data=None, index=X.index)
-        for period in tqdm(
-            range(self.period_from, self.period_to),
-            disable=qbpo.config.tqdm_config["disable"],
-        ):
+        num_cols = len(columns)
+        for idx, period in tqdm(enumerate(range(self.period_from, self.period_to)), disable=self.tqdm_disable):
             df_ = feat_utils.shift(
                 X,
                 columns=columns,
                 period=period,
                 id_columns=id_columns,
-                output_columns=output_columns,
+                output_columns=output_columns[idx * num_cols: (idx + 1) * num_cols],
             )
 
             df = pd.merge(
@@ -151,7 +152,7 @@ class ShiftFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexM
 
         if self.index is not None:
             self.sort_by_index(df, inplace=True)
-        print(df.shape)
+        
         return df
 
 
@@ -163,6 +164,7 @@ class DiffFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexMi
         columns: Union[str, List[str]] = None,
         id_columns: Union[str, List[str]] = None,
         index: pd.Index = None,
+        tqdm_disable: bool = False
     ):
         self.period_from = period_from
         self.period_to = period_to
@@ -170,6 +172,7 @@ class DiffFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexMi
         self.id_columns = id_columns
         self.index = index
         self.out_columns_args = [["diff", p] for p in range(period_from, period_to)]
+        self.tqdm_disable = tqdm_disable
 
     def fit_transform(self, X: pd.DataFrame, y=None, **fit_params):
         return super().fit_transform(X, y, **fit_params)
@@ -190,20 +193,20 @@ class DiffFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByIndexMi
         assert isinstance(X, pd.DataFrame)
 
         columns = self.columns
-
+        num_cols = len(columns)
         id_columns = _set_default(self.id_columns, [COL_EN])
 
+        output_columns = self.get_feature_names_out()
+        
         df = pd.DataFrame(data=None, index=X.index)
-        for period in tqdm(
-            range(self.period_from, self.period_to),
-            disable=qbpo.config.tqdm_config["disable"],
-        ):
+        for idx, period in tqdm(enumerate(range(self.period_from, self.period_to)), disable=self.tqdm_disable):
+            
             df_ = feat_utils.diff(
                 X,
                 columns=columns,
                 period=period,
                 id_columns=id_columns,
-                output_columns=self.get_feature_names_out(),
+                output_columns=output_columns[idx * num_cols: (idx + 1) * num_cols],
             )
             df = pd.merge(df, df_, left_index=True, right_index=True)
 
@@ -221,13 +224,15 @@ class RollingFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByInde
         id_columns: Union[str, List[str]] = None,
         funcs=[np.mean, np.sum, np.std],
         index: pd.Index = None,
+        tqdm_disable: bool = False
     ):
         self.period = period
         self.columns = columns
         self.id_columns = id_columns
         self.funcs = funcs
-        self.out_columns_args = [["roll", period]]
+        self.out_columns_args = [["roll", period, str(func.__qualname__)] for func in funcs]
         self.index = index
+        self.tqdm_disable = tqdm_disable
 
     def fit_transform(self, X: pd.DataFrame, y=None, **fit_params):
         return super().fit_transform(X, y, **fit_params)
@@ -248,18 +253,19 @@ class RollingFeatures(sk_base.TransformerMixin, FeatureNamesOutMixin, SortByInde
         assert isinstance(X, pd.DataFrame)
 
         columns = self.columns
-
+        num_cols = len(columns)
         id_columns = _set_default(self.id_columns, [COL_EN])
 
+        output_columns=self.get_feature_names_out()
         df = pd.DataFrame(data=None, index=X.index)
-        for func in tqdm(self.funcs, disable=config.tqdm_config["disable"]):
+        for idx, func in tqdm(enumerate(self.funcs), disable=self.tqdm_disable):
             df_ = feat_utils.rolling(
                 X,
                 columns=columns,
                 period=self.period,
                 id_columns=id_columns,
                 agg_func=func,
-                output_columns=self.get_feature_names_out(),
+                output_columns=output_columns[idx * num_cols: (idx + 1) * num_cols]
             )
             df = pd.merge(df, df_, left_index=True, right_index=True)
 
@@ -310,3 +316,51 @@ class MakeDataFrame(sk_base.TransformerMixin):
         if self.infer_objects:
             df = df.infer_objects()
         return df
+
+class RunningTsFeature(sk_base.TransformerMixin, SortByIndexMixin):
+    def __init__(
+        self,
+        index: pd.Index = None,
+        tqdm_disable:bool = False,
+        out_column_name:str = "running_ts",
+        ent_column_name:str = "cfips",
+        include_entity:bool = False
+    ):
+        self.index = index
+        self.tqdm_disable = tqdm_disable
+        self.out_column_name = out_column_name
+        self.ent_column_name = ent_column_name
+        self.include_entity = include_entity
+
+    def fit_transform(self, X: pd.DataFrame, y=None, **fit_params):
+        return super().fit_transform(X, y, **fit_params)
+
+    def fit(self, X: pd.DataFrame, y=None, **fit_params):
+        fdoms = X.first_day_of_month.unique()
+        fdoms.sort()
+        self.fdom_to_idx = {fdom: idx for idx, fdom in enumerate(fdoms)}
+        return self
+
+    def transform(self, X):
+        assert isinstance(X, pd.DataFrame)
+
+        fdom_max = max(X.first_day_of_month.max(), max(self.fdom_to_idx.keys()))
+        fdom_min = min(X.first_day_of_month.min(), min(self.fdom_to_idx.keys()))
+
+        all_dates = pd.date_range(start=dt.strptime(fdom_min, "%Y-%m-%d"), end=dt.strptime(fdom_max, "%Y-%m-%d"), freq="MS").to_series()
+        
+        fdom_to_idx = {dt.strftime(v, "%Y-%m-%d"): k for k, v in enumerate(all_dates)}
+
+        df_running_ts = pd.DataFrame(
+            data=X.apply(lambda x : fdom_to_idx[x.first_day_of_month], axis=1), 
+            index=X.index, 
+            columns=[self.out_column_name]
+        )
+
+        if self.include_entity:
+            df_running_ts[self.ent_column_name] = X[self.ent_column_name]
+
+        return df_running_ts
+
+    def get_feature_names_out(self, input_features = None):
+        return [self.out_column_name, self.ent_column_name] if self.include_entity else [self.out_column_name]

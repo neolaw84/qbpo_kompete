@@ -8,8 +8,6 @@ from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 
-import qbpo.config
-
 
 def get_arg(func, arg_name, *args, **kwargs):
     argspec = inspect.getfullargspec(func)
@@ -22,7 +20,9 @@ def get_arg(func, arg_name, *args, **kwargs):
             arg_value = kwargs[arg_name]
         else:
             arg_value = None
-    return arg_value
+        return arg_value
+    else:
+        return None
 
 
 def func_group_by_key(func=None, id_column_arg_name: str = "id_columns"):
@@ -30,12 +30,13 @@ def func_group_by_key(func=None, id_column_arg_name: str = "id_columns"):
     def wrapper_func_group_by_key(*args, **kwargs):
         id_columns = get_arg(func, id_column_arg_name, *args, **kwargs)
         df = get_arg(func, "df", *args, **kwargs)
+        tqdm_disable = get_arg(func, "tqdm_disable", *args, **kwargs)
         assert df is not None
         assert isinstance(df, pd.DataFrame)
         if id_columns:
             dfs = df.groupby(by=id_columns)
             _dfs = []
-            for _, _df in tqdm(dfs, disable=qbpo.config.tqdm_config["disable"]):
+            for _, _df in tqdm(dfs, disable=tqdm_disable):
                 args = (a for a in args if a is not df)
                 kwargs = {k: v for k, v in kwargs.items() if v is not df}
                 temp_df = func(_df, *args, **kwargs)
@@ -103,7 +104,7 @@ def diff_columns(
 ):
     df_diff = pd.DataFrame(index=df.index)
     pairs = itertools.product(columns, columns)
-    for ka, kb in tqdm(pairs, disable=qbpo.config.tqdm_config["disable"]):
+    for ka, kb in tqdm(pairs):
         if ka == kb:
             continue
         if not mirror and ka > kb:
@@ -153,10 +154,12 @@ def _rolling(
     period: int = 1,
     output_columns: Union[str, List[str]] = None,
     func=np.sum,
+    tqdm_disable:bool=False
 ):
     temp_df = pd.DataFrame(index=df.index)
     for c, oc in zip(columns, output_columns):
         temp_df[oc] = df[c].rolling(window=period).apply(func=func, raw=True)
+        
     return temp_df
 
 
@@ -168,6 +171,7 @@ def rolling(
     id_columns: Union[str, List[str]] = None,
     output_columns: Union[str, List[str]] = None,
     agg_func=np.sum,
+    tqdm_disable:bool=False
 ):
     columns = _ensure_list(columns)
 
@@ -182,7 +186,7 @@ def rolling(
     )
 
     df_diffed = _rolling(
-        df, columns=columns, period=period, output_columns=output_columns, func=agg_func
+        df, columns=columns, period=period, output_columns=output_columns, func=agg_func, tqdm_disable=tqdm_disable
     )
 
     return df_diffed
