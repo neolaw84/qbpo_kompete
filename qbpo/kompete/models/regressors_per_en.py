@@ -1,15 +1,17 @@
-import abc
-
+from typing import List, Union 
 from sklearn import base as sk_base
 from sklearn import linear_model as sk_lm
+
+import numpy as np
 
 import pandas as pd
 
 COL_EN = "cfips"
 COL_TS = "first_day_of_month"
+COL_RTS = "running_ts"
 Y = "y"
 
-class LastKnownRegressor(sk_base.BaseEstimator, sk_base.RegressorMixin):
+class LastKnownRegressorPerEn(sk_base.BaseEstimator, sk_base.RegressorMixin):
     def __init__(self, col_en:str = COL_EN, col_ts:str = COL_TS, return_df:bool = False):
         self.col_en = col_en
         self.col_ts = col_ts
@@ -31,33 +33,39 @@ class LastKnownRegressor(sk_base.BaseEstimator, sk_base.RegressorMixin):
         else:
             return X.apply(lambda x : self.df_y.loc[x[self.col_en], Y].item(), axis=1)
 
-COL_TARGET = "active"
  
 
-class LinearRegressor(sk_base.BaseEstimator, sk_base.RegressorMixin):
-    def __init__(self, col_en:str = COL_EN, col_running_ts:str = "running_ts"):
+class LinearRegressorPerEn(sk_base.BaseEstimator, sk_base.RegressorMixin):
+    def __init__(self, col_en:str = COL_EN, selected_columns:Union[str, List[str]] = None):
         self.col_en = col_en
-        self.col_running_ts = col_running_ts
+        self.selected_columns = selected_columns 
+
+    def _get_selected_columns(self, X):
+        selected_columns = self.selected_columns if self.selected_columns is not None else X.columns
+        if isinstance(selected_columns, str): selected_columns = [selected_columns]
+        return selected_columns
 
     def fit(self, X, y):
-        en_ts = [self.col_en, self.col_running_ts]
+        selected_columns = self._get_selected_columns(X)
+        en_ts = [self.col_en] + selected_columns
         df = pd.DataFrame(X[en_ts])
-        df["y"] = y
+        df[Y] = y
         
         self.models = {}
         for en, df_ in df.groupby(self.col_en):
             lm = sk_lm.LinearRegression()
-            lm.fit(df_[[self.col_running_ts]], df_["y"])
+            lm.fit(df_[selected_columns], df_[Y])
             self.models[en] = lm
         
         return self
 
     def predict(self, X):
-        def _predict(en, running_ts):
+        selected_columns = self._get_selected_columns(X)
+        def _predict(en, values_of_selected_columns):
             lm = self.models.get(en, None)
             if lm:
-                return lm.predict(pd.DataFrame({self.col_running_ts: [running_ts]}))
-        return X.apply(lambda x : _predict(x[self.col_en], x[self.col_running_ts]), axis=1)
+                return lm.predict(np.array([values_of_selected_columns]))[0]
+        return X.apply(lambda x : _predict(x[self.col_en], x[selected_columns]), axis=1)
         
 
 
